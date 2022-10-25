@@ -1,0 +1,144 @@
+---
+title: "cryptoPunk Prinicipal Components"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(png)
+```
+
+## Building the matrix
+
+First step: flatten the images into arrays of 1728 values between 0 and 255...
+Then, take the mean for each value in each observation to produce the average image by pixel.  Big matrix.  Not huge.
+
+```{r}
+pngs = list.files(path = "./originals", pattern = ".png")
+
+T = matrix(0, 1728, length(pngs))
+
+for (j in 1:length(pngs)){
+  img = readPNG(paste("./originals/", pngs[j], sep=''))
+  T[,j] = c(as.vector(img[,,1]), as.vector(img[,,2]), as.vector(img[,,3]))
+}
+
+dim(T)
+
+avgPic = rowMeans(T)
+T = T - avgPic
+```
+
+## Test plots
+
+Plot the first cryptoPunk with no transformations.
+
+```{r}
+j = readPNG(paste("./originals/", pngs[1], sep=''))
+
+par(pty="s")
+plot(1:2, type='n', xlab='', ylab='', axes=F, 
+     main=pngs[1])
+
+rasterImage(j, 1, 1, 2, 2, interpolate = FALSE)
+```
+
+Plot the average cryptoPunk.
+
+```{r}
+meanPic = array(avgPic, dim=c(24,24,3))
+
+par(pty="s")
+plot(1:2, type='n', xlab='', ylab='', axes=F, 
+     main="Average CryptoPunk")
+
+rasterImage(meanPic, 1, 1, 2, 2, interpolate = FALSE)
+```
+
+Subtract the initial image from the average, plot the new image.  This is a representation of all the things that are unique about it, different from the mean.
+
+```{r}
+s1_mean_centered = array(pmax(T[,1], 0),
+                         dim = c(24, 24, 3))
+
+par(pty="s")
+plot(1:2, type = 'n', xlab = '', ylab = '', axes = F, 
+     main =  '')
+
+rasterImage(s1_mean_centered, 1, 1, 2, 2, interpolate = FALSE)
+```
+
+## Singular Value Decomposition
+
+We min/max scale the values representing each pixel so that they are always with the range of 256.  This function will plot a principal component as given by singular value decomposition, given the index of the desired component, a matrix U, and the proper image dimensions.
+
+```{r}
+plotEigenpunk <- function(n, U = Tsvd$u, dim=c(24, 24, 3)) {
+  u_range = max(U[,n]) - min(U[,n])
+  scaled_u = U[,n] / u_range
+  scaled_u = scaled_u - min(scaled_u)
+  scaled_u = array(scaled_u, dim=dim)
+  
+  # This step here fixes a bug where color intensity of 1 is outside
+  # the open interval [0,1]
+  scaled_u[scaled_u > 0.9999999] <- 0.9999990
+  
+  plot(1:2, main = n, type='n', xlab='', ylab='', axes=F)
+  rasterImage(scaled_u, 1, 1, 2, 2, interpolate = FALSE)
+}
+```
+
+We calculate the singular value decomposition and plot an EigenPunk.  This is the first eigenvector of the matrix of 10k images, which accounts for more variance of the entire set than any other component.
+
+We may say that this image is a significant part of more original cryptoPunks than any other.  It might be realistic to say that this contains more information about the set than the average does.
+
+```{r}
+Tsvd = svd(T)
+```
+
+As we go down the gradient of eigenvectors, the components become less and less descriptive of the set... Still they all contain real information.
+
+```{r}
+par(pty="s", mfrow = c(2,2), cex=0.7, mai=c(0.3,0.3,0.3,0.3))
+
+plotEigenpunk(1)
+plotEigenpunk(2)
+plotEigenpunk(3)
+plotEigenpunk(4)
+
+plotEigenpunk(7)
+plotEigenpunk(10)
+plotEigenpunk(50)
+plotEigenpunk(200)
+```
+
+Now let's write the images.
+
+```{r}
+writeEigenPunk <- function(n, U, dim=c(24, 24, 3)) {
+  png(paste0(n, '.png'))
+  plotEigenpunk(n, U, dim)
+  dev.off()
+}
+
+for (i in 1:1728) {
+  writeEigenPunk(i, Tsvd$u)
+}
+```
+
+We can compute how significant each of these images is in terms of the variance among the entire set of originals.  
+
+```{r}
+vars <- Tsvd$d[1:200] / sum(Tsvd$d)
+head(vars)
+```
+
+Then, of course we can see cumulatively how many components are necessary to account for say 95% of the variance.... we need 194 components for this:
+
+```{r}
+(cumulative.var <- cumsum(Tsvd$d[1:200] / sum(Tsvd$d)))[1:194]
+```
+
+
